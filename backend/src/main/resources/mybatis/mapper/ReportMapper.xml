@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.staffassign.repository.ReportMapper">
+
+    <select id="getResourceAllocation" resultType="map">
+        SELECT 
+            e.id,
+            e.name,
+            e.department,
+            SUM(a.allocation_ratio) as total_ratio
+        FROM employee_master e
+        LEFT JOIN assignment a ON e.id = a.employee_id
+            AND a.start_ym &lt;= #{endYm} 
+            AND a.end_ym &gt;= #{startYm}
+        GROUP BY e.id, e.name, e.department
+        HAVING SUM(COALESCE(a.allocation_ratio, 0)) BETWEEN #{minRatio} AND #{maxRatio}
+        ORDER BY e.id
+    </select>
+
+    <select id="getBudgetMismatch" resultType="map">
+        WITH plan_sum AS (
+            SELECT 
+                project_id,
+                SUM(production_amount) as total_production
+            FROM project_plan pp
+            WHERE pp.start_ym &lt;= #{endYm} AND pp.end_ym &gt;= #{startYm}
+            GROUP BY project_id
+        )
+        SELECT 
+            pm.id,
+            pm.name,
+            pm.revenue,
+            ps.total_production,
+            (pm.revenue - ps.total_production) as difference
+        FROM project_master pm
+        INNER JOIN plan_sum ps ON pm.id = ps.project_id
+        WHERE pm.revenue != ps.total_production
+    </select>
+
+    <select id="getProjectCost" resultType="map">
+        WITH cost_sum AS (
+            SELECT 
+                project_id,
+                SUM(unit_price * allocation_ratio) as total_cost
+            FROM assignment
+            WHERE start_ym &lt;= #{endYm} AND end_ym &gt;= #{startYm}
+            GROUP BY project_id
+        )
+        SELECT 
+            pm.id,
+            pm.name,
+            COALESCE(cs.total_cost, 0) as cost,
+            pm.revenue,
+            (pm.revenue - COALESCE(cs.total_cost, 0)) as profit
+        FROM project_master pm
+        LEFT JOIN cost_sum cs ON pm.id = cs.project_id
+        ORDER BY profit DESC
+    </select>
+
+</mapper>

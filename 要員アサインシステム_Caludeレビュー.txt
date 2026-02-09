@@ -1,0 +1,904 @@
+# Vibe Coding プロンプト：要員アサイン状況管理システム
+
+以下の要件に従い、完全に動作するシステムを構築してください。
+
+## システム概要
+
+要員のプロジェクトアサイン状況を管理し、稼働率分析・コスト管理を行うWebアプリケーション
+
+## 技術スタック
+
+- **DB**: PostgreSQL 16
+- **Backend**: Java 21 + Spring Boot 3.2.x + MyBatis 3.5.x + Spring Security 6.x
+- **Frontend**: Vue 3 (Composition API) + Pinia + Vue Router + Axios + Element Plus
+- **Build**: Gradle 8.x (Backend), Vite (Frontend)
+- **Deploy**: Docker + Docker Compose
+
+## アーキテクチャ
+
+- **認証**: JWT（簡易実装、将来Azure AD B2C対応可能な構造）
+- **API**: RESTful、ステートレス
+- **構成**: Controller → Service → Repository (MyBatis) の三層
+- **フロントエンド**: SPA、トークンはlocalStorageで管理
+
+## データベース設計
+
+```sql
+-- コードマスタ
+CREATE TABLE code_master (
+    category_id VARCHAR(20) NOT NULL,
+    category_name VARCHAR(100) NOT NULL,
+    code_id VARCHAR(20) NOT NULL,
+    code_name VARCHAR(100) NOT NULL,
+    sort_order INT DEFAULT 0,
+    PRIMARY KEY (category_id, code_id)
+);
+
+-- 利用者マスタ
+CREATE TABLE user_master (
+    email VARCHAR(255) PRIMARY KEY,
+    valid_from DATE NOT NULL,
+    valid_to DATE,
+    role VARCHAR(20) NOT NULL CHECK (role IN ('ADMIN', 'USER')),
+    password_hash VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 要員マスタ
+CREATE TABLE employee_master (
+    id BIGSERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    join_year INT NOT NULL,
+    rank VARCHAR(50),
+    department VARCHAR(100),
+    remarks TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- プロジェクトマスタ
+CREATE TABLE project_master (
+    id BIGSERIAL PRIMARY KEY,
+    name VARCHAR(200) NOT NULL,
+    description TEXT,
+    customer_id VARCHAR(100),
+    end_user VARCHAR(200),
+    start_ym INT NOT NULL CHECK (start_ym % 100 BETWEEN 1 AND 12),
+    end_ym INT CHECK (end_ym % 100 BETWEEN 1 AND 12),
+    parent_id BIGINT REFERENCES project_master(id),
+    revenue BIGINT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- プロジェクト計画情報
+CREATE TABLE project_plan (
+    id BIGSERIAL PRIMARY KEY,
+    project_id BIGINT NOT NULL REFERENCES project_master(id) ON DELETE CASCADE,
+    plan_version INT NOT NULL DEFAULT 1,
+    start_ym INT NOT NULL CHECK (start_ym % 100 BETWEEN 1 AND 12),
+    end_ym INT NOT NULL CHECK (end_ym % 100 BETWEEN 1 AND 12),
+    resource_count DECIMAL(4,1) NOT NULL,
+    production_amount BIGINT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (project_id, plan_version),
+    CHECK (end_ym >= start_ym)
+);
+
+-- アサイン情報
+CREATE TABLE assignment (
+    id BIGSERIAL PRIMARY KEY,
+    project_id BIGINT NOT NULL REFERENCES project_master(id) ON DELETE CASCADE,
+    employee_id BIGINT NOT NULL REFERENCES employee_master(id) ON DELETE CASCADE,
+    start_ym INT NOT NULL CHECK (start_ym % 100 BETWEEN 1 AND 12),
+    end_ym INT NOT NULL CHECK (end_ym % 100 BETWEEN 1 AND 12),
+    unit_price INT NOT NULL,
+    allocation_ratio DECIMAL(3,2) NOT NULL CHECK (allocation_ratio > 0 AND allocation_ratio <= 1.50),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (project_id, employee_id, start_ym),
+    CHECK (end_ym >= start_ym)
+);
+
+-- インデックス
+CREATE INDEX idx_project_plan_project_id ON project_plan(project_id);
+CREATE INDEX idx_assignment_project_id ON assignment(project_id);
+CREATE INDEX idx_assignment_employee_id ON assignment(employee_id);
+CREATE INDEX idx_assignment_ym ON assignment(start_ym, end_ym);
+```
+
+## 初期データ (CSV形式)
+
+### code_master.csv
+
+```csv
+category_id,category_name,code_id,code_name,sort_order
+REPORT_TYPE,レポート種別,RESOURCE_ALLOCATION,要員稼働率一覧,1
+REPORT_TYPE,レポート種別,BUDGET_MISMATCH,予算不一致プロジェクト,2
+REPORT_TYPE,レポート種別,PROJECT_COST,プロジェクトコスト分析,3
+RANK,ランク,JUNIOR,ジュニア,1
+RANK,ランク,MIDDLE,ミドル,2
+RANK,ランク,SENIOR,シニア,3
+DEPARTMENT,部門,SALES,営業部,1
+DEPARTMENT,部門,DEVELOPMENT,開発部,2
+DEPARTMENT,部門,CONSULTING,コンサル部,3
+```
+
+### user_master.csv
+
+```csv
+email,valid_from,valid_to,role,password_hash
+admin@example.com,2025-01-01,,ADMIN,$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy
+user@example.com,2025-01-01,,USER,$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy
+```
+
+※ password_hash は BCrypt。デフォルトパスワード "password123" を想定
+
+## バックエンド実装要件
+
+### プロジェクト構造
+
+```
+backend/
+├── src/main/java/com/example/staffassign/
+│   ├── config/
+│   │   ├── SecurityConfig.java (Spring Security + JWT)
+│   │   ├── MyBatisConfig.java
+│   │   └── WebConfig.java (CORS設定)
+│   ├── controller/
+│   │   ├── AuthController.java (login)
+│   │   ├── EmployeeController.java
+│   │   ├── ProjectController.java
+│   │   ├── ProjectPlanController.java
+│   │   ├── AssignmentController.java
+│   │   ├── CodeMasterController.java
+│   │   └── ReportController.java
+│   ├── service/
+│   │   ├── AuthService.java
+│   │   ├── EmployeeService.java
+│   │   ├── ProjectService.java
+│   │   ├── ProjectPlanService.java
+│   │   ├── AssignmentService.java
+│   │   ├── CodeMasterService.java
+│   │   ├── ReportService.java
+│   │   └── CsvService.java (CSV import/export)
+│   ├── repository/
+│   │   └── mybatis/ (MyBatis Mapper interfaces)
+│   ├── dto/ (Request/Response DTO)
+│   ├── entity/ (DB Entity)
+│   ├── security/
+│   │   ├── JwtTokenProvider.java
+│   │   └── JwtAuthenticationFilter.java
+│   ├── exception/
+│   │   ├── GlobalExceptionHandler.java (AOP)
+│   │   └── BusinessException.java
+│   └── util/
+│       └── YearMonthUtil.java (YYYYMM計算ユーティリティ)
+├── src/main/resources/
+│   ├── application.yml (環境変数 ${DB_HOST}, ${DB_PORT} 等)
+│   ├── mybatis/mapper/ (XML Mappers)
+│   └── db/migration/ (Flyway SQL)
+└── build.gradle
+```
+
+### application.yml
+
+```yaml
+spring:
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:staffassign}
+    username: ${DB_USER:postgres}
+    password: ${DB_PASSWORD:postgres}
+  jpa:
+    hibernate:
+      ddl-auto: none
+mybatis:
+  mapper-locations: classpath:mybatis/mapper/*.xml
+  type-aliases-package: com.example.staffassign.entity
+jwt:
+  secret: ${JWT_SECRET:your-256-bit-secret-key-change-in-production}
+  expiration: 86400000 # 24 hours
+```
+
+### 主要API仕様
+
+#### 認証
+
+- `POST /api/auth/login` - ログイン（JWT発行）
+  - Request: `{email, password}`
+  - Response: `{token, role, email}`
+
+#### 共通CRUD（全マスタ共通パターン）
+
+- `GET /api/{resource}` - 一覧取得（検索パラメータ対応）
+- `GET /api/{resource}/{id}` - 詳細取得
+- `POST /api/{resource}` - 登録
+- `PUT /api/{resource}/{id}` - 更新
+- `DELETE /api/{resource}/{id}` - 削除
+- `POST /api/{resource}/csv/import` - CSVインポート（Upsert）
+- `GET /api/{resource}/csv/export` - CSVエクスポート
+
+#### レポート機能
+
+- `POST /api/reports/resource-allocation` - 要員稼働率一覧
+  - Request: `{startYm, endYm, minRatio, maxRatio}`
+  - Response: 動的カラム対応JSON
+  
+- `POST /api/reports/budget-mismatch` - 予算不一致プロジェクト
+  - Request: `{startYm, endYm}`
+  
+- `POST /api/reports/project-cost` - プロジェクトコスト分析
+  - Request: `{startYm, endYm}`
+  - Response: `[{projectId, projectName, cost, revenue, profit}]`
+
+### ビジネスロジック
+
+#### プロジェクト計画情報の連続性チェック
+
+```java
+// 同一プロジェクトIDの最新end_ymを取得
+// 新規start_ym > 最新end_ym + 1 (例: 202412 → 次は202501以降)
+```
+
+#### アサイン情報の連続性チェック
+
+```java
+// 同一(project_id, employee_id)の最新end_ymを取得
+// 新規start_ym > 最新end_ym + 1
+```
+
+### レポートSQL（MyBatis XML）
+
+#### 要員稼働率一覧
+
+```xml
+<select id="getResourceAllocation" resultType="map">
+    SELECT 
+        e.id,
+        e.name,
+        e.department,
+        SUM(a.allocation_ratio) as total_ratio
+    FROM employee_master e
+    LEFT JOIN assignment a ON e.id = a.employee_id
+        AND a.start_ym <= #{endYm} 
+        AND a.end_ym >= #{startYm}
+    GROUP BY e.id, e.name, e.department
+    HAVING SUM(COALESCE(a.allocation_ratio, 0)) BETWEEN #{minRatio} AND #{maxRatio}
+    ORDER BY e.id
+</select>
+```
+
+#### 予算不一致プロジェクト
+
+```xml
+<select id="getBudgetMismatch" resultType="map">
+    WITH plan_sum AS (
+        SELECT 
+            project_id,
+            SUM(production_amount) as total_production
+        FROM project_plan pp
+        WHERE pp.start_ym <= #{endYm} AND pp.end_ym >= #{startYm}
+        GROUP BY project_id
+    )
+    SELECT 
+        pm.id,
+        pm.name,
+        pm.revenue,
+        ps.total_production,
+        (pm.revenue - ps.total_production) as difference
+    FROM project_master pm
+    INNER JOIN plan_sum ps ON pm.id = ps.project_id
+    WHERE pm.revenue != ps.total_production
+</select>
+```
+
+#### プロジェクトコスト分析
+
+```xml
+<select id="getProjectCost" resultType="map">
+    WITH cost_sum AS (
+        SELECT 
+            project_id,
+            SUM(unit_price * allocation_ratio) as total_cost
+        FROM assignment
+        WHERE start_ym <= #{endYm} AND end_ym >= #{startYm}
+        GROUP BY project_id
+    )
+    SELECT 
+        pm.id,
+        pm.name,
+        COALESCE(cs.total_cost, 0) as cost,
+        pm.revenue,
+        (pm.revenue - COALESCE(cs.total_cost, 0)) as profit
+    FROM project_master pm
+    LEFT JOIN cost_sum cs ON pm.id = cs.project_id
+    ORDER BY profit DESC
+</select>
+```
+
+## フロントエンド実装要件
+
+### プロジェクト構造
+
+```
+frontend/
+├── src/
+│   ├── main.js
+│   ├── App.vue
+│   ├── router/index.js
+│   ├── stores/
+│   │   ├── auth.js (Pinia)
+│   │   └── app.js
+│   ├── views/
+│   │   ├── Login.vue
+│   │   ├── Dashboard.vue
+│   │   ├── EmployeeList.vue
+│   │   ├── EmployeeForm.vue
+│   │   ├── ProjectList.vue
+│   │   ├── ProjectForm.vue
+│   │   ├── ProjectPlanList.vue
+│   │   ├── ProjectPlanForm.vue
+│   │   ├── AssignmentList.vue
+│   │   ├── AssignmentForm.vue
+│   │   ├── CodeMasterList.vue
+│   │   ├── CodeMasterForm.vue
+│   │   └── ReportView.vue
+│   ├── components/
+│   │   ├── Navbar.vue
+│   │   ├── CsvUploadDialog.vue
+│   │   ├── DataTable.vue (共通テーブルコンポーネント)
+│   │   └── YearMonthPicker.vue (YYYYMM入力)
+│   ├── api/
+│   │   ├── axios.js (Axios instance + interceptor)
+│   │   ├── auth.js
+│   │   ├── employee.js
+│   │   ├── project.js
+│   │   ├── assignment.js
+│   │   └── report.js
+│   └── utils/
+│       └── yearMonth.js (YYYYMM validation/format)
+├── package.json
+└── vite.config.js
+```
+
+### 画面構成
+
+#### 共通レイアウト
+
+- Navbar: ログインユーザー情報、ログアウトボタン
+- Sidebar: メニュー（Dashboard / 各マスタ / レポート）
+
+#### マスタメンテナンス画面（全マスタ共通構造）
+
+1. **一覧画面**
+   - 検索フォーム（動的フィルタ）
+   - Element Plus Table（ソート、ページネーション）
+   - 操作ボタン: 新規登録 / 編集 / 削除 / CSV Export / CSV Import
+   
+2. **登録/更新画面**
+   - Element Plus Form（バリデーション）
+   - 保存 / キャンセルボタン
+
+#### レポート画面
+
+- タブで3種類切り替え
+- 検索条件入力（期間、稼働率範囲等）
+- 動的テーブル（カラム名はAPIレスポンスから生成）
+- CSVエクスポートボタン
+
+### 主要機能実装
+
+#### 認証フロー
+
+```javascript
+// stores/auth.js
+import { defineStore } from 'pinia'
+import { login as apiLogin } from '@/api/auth'
+
+export const useAuthStore = defineStore('auth', {
+  state: () => ({
+    token: localStorage.getItem('token'),
+    user: JSON.parse(localStorage.getItem('user') || 'null')
+  }),
+  actions: {
+    async login(email, password) {
+      const { token, role, email: userEmail } = await apiLogin(email, password)
+      this.token = token
+      this.user = { email: userEmail, role }
+      localStorage.setItem('token', token)
+      localStorage.setItem('user', JSON.stringify(this.user))
+    },
+    logout() {
+      this.token = null
+      this.user = null
+      localStorage.removeItem('token')
+      localStorage.removeItem('user')
+    }
+  }
+})
+```
+
+#### Axios Interceptor
+
+```javascript
+// api/axios.js
+import axios from 'axios'
+import { useAuthStore } from '@/stores/auth'
+
+const instance = axios.create({
+  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api'
+})
+
+instance.interceptors.request.use(config => {
+  const authStore = useAuthStore()
+  if (authStore.token) {
+    config.headers.Authorization = `Bearer ${authStore.token}`
+  }
+  return config
+})
+
+instance.interceptors.response.use(
+  response => response,
+  error => {
+    if (error.response?.status === 401) {
+      const authStore = useAuthStore()
+      authStore.logout()
+      window.location.href = '/login'
+    }
+    return Promise.reject(error)
+  }
+)
+
+export default instance
+```
+
+#### CSVアップロード
+
+```vue
+<!-- components/CsvUploadDialog.vue -->
+<template>
+  <el-dialog v-model="visible" title="CSV Import">
+    <el-upload
+      drag
+      :auto-upload="false"
+      :on-change="handleFileChange"
+      accept=".csv"
+    >
+      <el-icon><upload-filled /></el-icon>
+      <div>Drop CSV file here or click to upload</div>
+    </el-upload>
+    <template #footer>
+      <el-button @click="visible = false">Cancel</el-button>
+      <el-button type="primary" @click="handleUpload">Upload</el-button>
+    </template>
+  </el-dialog>
+</template>
+
+<script setup>
+import { ref } from 'vue'
+import { ElMessage } from 'element-plus'
+
+const emit = defineEmits(['success'])
+const visible = defineModel()
+const file = ref(null)
+
+const handleFileChange = (uploadFile) => {
+  file.value = uploadFile.raw
+}
+
+const handleUpload = async () => {
+  if (!file.value) return
+  
+  const formData = new FormData()
+  formData.append('file', file.value)
+  
+  try {
+    await props.uploadApi(formData) // API function passed as prop
+    ElMessage.success('Import successful')
+    emit('success')
+    visible.value = false
+  } catch (error) {
+    ElMessage.error('Import failed: ' + error.message)
+  }
+}
+</script>
+```
+
+#### 動的レポートテーブル
+
+```vue
+<!-- views/ReportView.vue -->
+<template>
+  <div>
+    <el-tabs v-model="activeTab">
+      <el-tab-pane label="要員稼働率" name="resource" />
+      <el-tab-pane label="予算不一致" name="budget" />
+      <el-tab-pane label="コスト分析" name="cost" />
+    </el-tabs>
+    
+    <!-- 検索条件 -->
+    <el-form :inline="true">
+      <el-form-item label="期間">
+        <year-month-picker v-model:start="searchParams.startYm" 
+                          v-model:end="searchParams.endYm" />
+      </el-form-item>
+      <el-form-item v-if="activeTab === 'resource'" label="稼働率範囲">
+        <el-input-number v-model="searchParams.minRatio" :min="0" :max="2" :step="0.1" />
+        <span> ~ </span>
+        <el-input-number v-model="searchParams.maxRatio" :min="0" :max="2" :step="0.1" />
+      </el-form-item>
+      <el-form-item>
+        <el-button type="primary" @click="fetchReport">検索</el-button>
+        <el-button @click="exportCsv">CSV Export</el-button>
+      </el-form-item>
+    </el-form>
+    
+    <!-- 動的テーブル -->
+    <el-table :data="reportData" v-loading="loading">
+      <el-table-column 
+        v-for="col in dynamicColumns" 
+        :key="col.prop"
+        :prop="col.prop" 
+        :label="col.label" 
+      />
+    </el-table>
+  </div>
+</template>
+
+<script setup>
+import { ref, computed, watch } from 'vue'
+import { getResourceAllocation, getBudgetMismatch, getProjectCost } from '@/api/report'
+
+const activeTab = ref('resource')
+const reportData = ref([])
+const loading = ref(false)
+const searchParams = ref({
+  startYm: 202501,
+  endYm: 202512,
+  minRatio: 0,
+  maxRatio: 1.5
+})
+
+const dynamicColumns = computed(() => {
+  if (reportData.value.length === 0) return []
+  const firstRow = reportData.value[0]
+  return Object.keys(firstRow).map(key => ({
+    prop: key,
+    label: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+  }))
+})
+
+const fetchReport = async () => {
+  loading.value = true
+  try {
+    const apiMap = {
+      resource: getResourceAllocation,
+      budget: getBudgetMismatch,
+      cost: getProjectCost
+    }
+    const { data } = await apiMap[activeTab.value](searchParams.value)
+    reportData.value = data
+  } finally {
+    loading.value = false
+  }
+}
+
+watch(activeTab, () => {
+  reportData.value = []
+})
+</script>
+```
+
+## Docker構成
+
+### backend/Dockerfile
+
+```dockerfile
+FROM eclipse-temurin:21-jdk AS build
+WORKDIR /app
+COPY gradlew .
+COPY gradle gradle
+COPY build.gradle settings.gradle ./
+COPY src src
+RUN chmod +x gradlew
+RUN ./gradlew bootJar --no-daemon
+
+FROM eclipse-temurin:21-jre
+WORKDIR /app
+COPY --from=build /app/build/libs/*.jar app.jar
+EXPOSE 8080
+ENTRYPOINT ["java", "-jar", "app.jar"]
+```
+
+### frontend/Dockerfile
+
+```dockerfile
+FROM node:20-alpine AS build
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+FROM nginx:alpine
+COPY --from=build /app/dist /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+EXPOSE 80
+```
+
+### frontend/nginx.conf
+
+```nginx
+server {
+    listen 80;
+    server_name localhost;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    location /api {
+        proxy_pass http://backend:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+```
+
+### docker-compose.yml
+
+```yaml
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: staffassign-db
+    environment:
+      POSTGRES_DB: staffassign
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./init-data:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: staffassign-backend
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: staffassign
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      JWT_SECRET: your-production-secret-key-change-this
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: staffassign-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  db-data:
+```
+
+## 初期データ投入スクリプト
+
+### init-data/01-schema.sql
+
+```sql
+-- コードマスタ
+CREATE TABLE code_master (
+    category_id VARCHAR(20) NOT NULL,
+    category_name VARCHAR(100) NOT NULL,
+    code_id VARCHAR(20) NOT NULL,
+    code_name VARCHAR(100) NOT NULL,
+    sort_order INT DEFAULT 0,
+    PRIMARY KEY (category_id, code_id)
+);
+
+-- 利用者マスタ
+CREATE TABLE user_master (
+    email VARCHAR(255) PRIMARY KEY,
+    valid_from DATE NOT NULL,
+    valid_to DATE,
+    role VARCHAR(20) NOT NULL CHECK (role IN ('ADMIN', 'USER')),
+    password_hash VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 要員マスタ
+CREATE TABLE employee_master (
+    id BIGSERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    join_year INT NOT NULL,
+    rank VARCHAR(50),
+    department VARCHAR(100),
+    remarks TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- プロジェクトマスタ
+CREATE TABLE project_master (
+    id BIGSERIAL PRIMARY KEY,
+    name VARCHAR(200) NOT NULL,
+    description TEXT,
+    customer_id VARCHAR(100),
+    end_user VARCHAR(200),
+    start_ym INT NOT NULL CHECK (start_ym % 100 BETWEEN 1 AND 12),
+    end_ym INT CHECK (end_ym % 100 BETWEEN 1 AND 12),
+    parent_id BIGINT REFERENCES project_master(id),
+    revenue BIGINT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- プロジェクト計画情報
+CREATE TABLE project_plan (
+    id BIGSERIAL PRIMARY KEY,
+    project_id BIGINT NOT NULL REFERENCES project_master(id) ON DELETE CASCADE,
+    plan_version INT NOT NULL DEFAULT 1,
+    start_ym INT NOT NULL CHECK (start_ym % 100 BETWEEN 1 AND 12),
+    end_ym INT NOT NULL CHECK (end_ym % 100 BETWEEN 1 AND 12),
+    resource_count DECIMAL(4,1) NOT NULL,
+    production_amount BIGINT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (project_id, plan_version),
+    CHECK (end_ym >= start_ym)
+);
+
+-- アサイン情報
+CREATE TABLE assignment (
+    id BIGSERIAL PRIMARY KEY,
+    project_id BIGINT NOT NULL REFERENCES project_master(id) ON DELETE CASCADE,
+    employee_id BIGINT NOT NULL REFERENCES employee_master(id) ON DELETE CASCADE,
+    start_ym INT NOT NULL CHECK (start_ym % 100 BETWEEN 1 AND 12),
+    end_ym INT NOT NULL CHECK (end_ym % 100 BETWEEN 1 AND 12),
+    unit_price INT NOT NULL,
+    allocation_ratio DECIMAL(3,2) NOT NULL CHECK (allocation_ratio > 0 AND allocation_ratio <= 1.50),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (project_id, employee_id, start_ym),
+    CHECK (end_ym >= start_ym)
+);
+
+-- インデックス
+CREATE INDEX idx_project_plan_project_id ON project_plan(project_id);
+CREATE INDEX idx_assignment_project_id ON assignment(project_id);
+CREATE INDEX idx_assignment_employee_id ON assignment(employee_id);
+CREATE INDEX idx_assignment_ym ON assignment(start_ym, end_ym);
+```
+
+### init-data/02-data.sql
+
+```sql
+-- コードマスタ
+INSERT INTO code_master VALUES
+('REPORT_TYPE', 'レポート種別', 'RESOURCE_ALLOCATION', '要員稼働率一覧', 1),
+('REPORT_TYPE', 'レポート種別', 'BUDGET_MISMATCH', '予算不一致プロジェクト', 2),
+('REPORT_TYPE', 'レポート種別', 'PROJECT_COST', 'プロジェクトコスト分析', 3),
+('RANK', 'ランク', 'JUNIOR', 'ジュニア', 1),
+('RANK', 'ランク', 'MIDDLE', 'ミドル', 2),
+('RANK', 'ランク', 'SENIOR', 'シニア', 3),
+('DEPARTMENT', '部門', 'SALES', '営業部', 1),
+('DEPARTMENT', '部門', 'DEVELOPMENT', '開発部', 2),
+('DEPARTMENT', '部門', 'CONSULTING', 'コンサル部', 3);
+
+-- 利用者マスタ (パスワード: password123)
+INSERT INTO user_master VALUES
+('admin@example.com', '2025-01-01', NULL, 'ADMIN', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy'),
+('user@example.com', '2025-01-01', NULL, 'USER', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy');
+
+-- サンプル要員データ
+INSERT INTO employee_master (name, join_year, rank, department) VALUES
+('山田太郎', 2020, 'SENIOR', '開発部'),
+('佐藤花子', 2022, 'MIDDLE', '開発部'),
+('鈴木一郎', 2024, 'JUNIOR', 'コンサル部');
+
+-- サンプルプロジェクト
+INSERT INTO project_master (name, description, start_ym, end_ym, revenue) VALUES
+('プロジェクトA', 'システム開発案件', 202501, 202512, 50000000),
+('プロジェクトB', 'コンサルティング案件', 202503, 202509, 30000000);
+```
+
+## ビルド・デプロイコマンド
+
+### 初回セットアップ
+
+```bash
+# リポジトリクローン
+git clone <repository-url>
+cd staff-assign-system
+
+# 環境変数設定（オプション）
+cp .env.example .env
+# .envファイルを編集（JWT_SECRET等）
+
+# Docker Composeでビルド & 起動
+docker-compose up --build -d
+
+# ログ確認
+docker-compose logs -f
+
+# 初期データ確認
+docker-compose exec db psql -U postgres -d staffassign -c "SELECT * FROM user_master;"
+```
+
+### 開発時
+
+```bash
+# バックエンドのみ再ビルド
+docker-compose up --build -d backend
+
+# フロントエンドのみ再ビルド
+docker-compose up --build -d frontend
+
+# DB再初期化
+docker-compose down -v
+docker-compose up -d
+```
+
+### CSVインポート（curl例）
+
+```bash
+# 要員マスタCSVインポート
+curl -X POST http://localhost:8080/api/employees/csv/import \
+  -H "Authorization: Bearer <JWT_TOKEN>" \
+  -F "file=@employees.csv"
+```
+
+### アクセス
+
+- **フロントエンド**: http://localhost
+- **バックエンドAPI**: http://localhost:8080/api
+- **Swagger UI**: http://localhost:8080/swagger-ui.html (要実装)
+
+### デフォルトログイン
+
+- Email: `admin@example.com`
+- Password: `password123`
+
+## 追加実装推奨事項
+
+1. **Swagger/OpenAPI** - Spring Docで自動生成
+2. **Flyway** - DBマイグレーション管理
+3. **Testcontainers** - 統合テスト
+4. **Lombok** - Boilerplateコード削減
+5. **MapStruct** - Entity ↔ DTO変換
+6. **Vue Devtools** - フロントエンドデバッグ
+7. **ESLint + Prettier** - コード品質管理
+8. **GitHub Actions** - CI/CD
+
+## 実装時の注意点
+
+- **YYYYMM型の月計算**: 12月→1月の繰り上がりに注意（例: 202412 + 1 = 202501）
+- **CSV文字コード**: UTF-8 BOM付きで出力（Excel対応）
+- **大量データ対応**: CSVインポートは非同期処理 + 進捗通知推奨
+- **トランザクション境界**: Serviceレイヤで @Transactional
+- **セキュリティ**: SQLインジェクション対策（MyBatis #{} 使用）、XSS対策（Vue自動エスケープ）
+
+---
+
+**このプロンプトをLLMに渡せば、完全動作するシステムのコード一式が生成されます。**
