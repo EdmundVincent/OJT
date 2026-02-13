@@ -22,7 +22,7 @@
       </el-form-item>
       <el-form-item>
         <el-button type="primary" @click="fetchReport">検索</el-button>
-        <el-button v-if="authStore.user?.role === 'ADMIN'" type="warning" @click="handleExport">CSVエクスポート</el-button>
+        <el-button v-if="authStore.isAdmin" type="warning" @click="handleExport">CSVエクスポート</el-button>
       </el-form-item>
     </el-form>
     
@@ -51,8 +51,8 @@ const reportTabs = ref([])
 const reportData = ref([])
 const loading = ref(false)
 const searchParams = ref({
-  startYm: 202501,
-  endYm: 202512,
+  startYm: '202501',
+  endYm: '202512',
   minRatio: 0,
   maxRatio: 1.5
 })

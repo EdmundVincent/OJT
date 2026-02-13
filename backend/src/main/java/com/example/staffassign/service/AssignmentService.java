@@ -23,6 +23,10 @@ public class AssignmentService {
         this.assignmentMapper = assignmentMapper;
     }
 
+    public List<Assignment> findAll() {
+        return assignmentMapper.findAll();
+    }
+
     public List<Assignment> findByProjectId(Long projectId) {
         return assignmentMapper.findByProjectId(projectId);
     }

@@ -97,6 +97,41 @@ const fetchUsers = async () => {
   }
 }
 
+const triggerImport = () => fileInput.value.click()
+
+const handleImport = async (event) => {
+  const file = event.target.files[0]
+  if (!file) return
+  
+  const formData = new FormData()
+  formData.append('file', file)
+  
+  try {
+    await importUsers(formData)
+    ElMessage.success('インポートしました')
+    fetchUsers()
+  } catch (e) {
+    ElMessage.error('インポートに失敗しました')
+  } finally {
+    event.target.value = ''
+  }
+}
+
+const handleExport = async () => {
+  try {
+    const response = await exportUsers()
+    const url = window.URL.createObjectURL(new Blob([response.data]))
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', 'users.csv')
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  } catch (e) {
+    ElMessage.error('エクスポートに失敗しました')
+  }
+}
+
 const handleAdd = () => {
   isEdit.value = false
   form.email = ''

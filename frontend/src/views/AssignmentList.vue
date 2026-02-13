@@ -2,7 +2,7 @@
   <div>
     <div class="toolbar">
       <el-button type="primary" @click="handleAdd">アサイン登録</el-button>
-      <template v-if="authStore.user?.role === 'ADMIN'">
+      <template v-if="authStore.isAdmin">
         <el-button type="success" @click="triggerImport">CSVインポート</el-button>
         <el-button type="warning" @click="handleExport">CSVエクスポート</el-button>
         <input type="file" ref="fileInput" style="display: none" @change="handleImport" accept=".csv" />
@@ -26,17 +26,31 @@
 
     <el-dialog v-model="dialogVisible" :title="form.id ? '編集' : '新規登録'">
       <el-form :model="form" label-width="120px">
-        <el-form-item label="プロジェクトID">
-          <el-input-number v-model="form.projectId" />
+        <el-form-item label="プロジェクト">
+          <el-select v-model="form.projectId" placeholder="プロジェクトを選択" filterable>
+            <el-option
+              v-for="p in projects"
+              :key="p.id"
+              :label="p.name + ' (ID:' + p.id + ')'"
+              :value="p.id"
+            />
+          </el-select>
         </el-form-item>
-        <el-form-item label="社員ID">
-          <el-input-number v-model="form.employeeId" />
+        <el-form-item label="社員">
+          <el-select v-model="form.employeeId" placeholder="社員を選択" filterable>
+            <el-option
+              v-for="e in employees"
+              :key="e.id"
+              :label="e.name + ' (ID:' + e.id + ')'"
+              :value="e.id"
+            />
+          </el-select>
         </el-form-item>
         <el-form-item label="開始年月">
-          <el-input-number v-model="form.startYm" :min="200000" :max="209912" />
+          <el-date-picker v-model="form.startYm" type="month" value-format="YYYYMM" placeholder="選択してください" style="width: 100%" />
         </el-form-item>
         <el-form-item label="終了年月">
-          <el-input-number v-model="form.endYm" :min="200000" :max="209912" />
+          <el-date-picker v-model="form.endYm" type="month" value-format="YYYYMM" placeholder="選択してください" style="width: 100%" />
         </el-form-item>
         <el-form-item label="稼働率">
           <el-input-number v-model="form.allocationRatio" :step="0.1" :min="0" :max="1.5" />
@@ -56,30 +70,32 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { getAssignments, createAssignment, updateAssignment, deleteAssignment, importAssignments, exportAssignments } from '@/api/assignment'
+import { getProjects } from '@/api/project'
+import { getEmployees } from '@/api/employee'
 import { useAuthStore } from '@/stores/auth'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const authStore = useAuthStore()
 const assignments = ref([])
+const projects = ref([])
+const employees = ref([])
 const dialogVisible = ref(false)
 const form = ref({})
 const fileInput = ref(null)
 
+const fetchMasterData = async () => {
+  try {
+    const [pRes, eRes] = await Promise.all([getProjects(), getEmployees()])
+    projects.value = pRes.data
+    employees.value = eRes.data
+  } catch (e) {
+    console.error('Failed to fetch master data', e)
+  }
+}
+
 const fetchAssignments = async () => {
-  // 実運用ではフィルタが必要だが、簡易実装として全件(API側がパラメータなしなら空か全件かによるが、現状APIは空を返すかも？
-  // 修正: API側はパラメータなしだと空リストを返す仕様にした。
-  // ここではテスト用にパラメータなしでも全件返すようにAPIを変更するか、フロントで何か指定するか。
-  // 今回は一旦ダミーパラメータを送るか、APIを修正する。
-  // 簡易的に projectId=1 などを指定してみる、あるいは全件取得APIを追加すべきだが、
-  // ここでは一旦 projectId=1 で決め打ちして動作確認するか、API側を修正して全件返すようにするか。
-  // API側修正が望ましいが、手っ取り早く projectId=1 で検索してみる（データが入れば）
-  // またはAPI側を修正する。
-  
-  // 修正案: フロントエンドで「プロジェクトID」検索フィルタをつけるのが正しい姿。
-  // ここでは簡易的に空パラメータで全件返すようにAPI側を変更した方がデバッグしやすい。
-  // BackendのAssignmentControllerを修正しますか？
-  // いや、とりあえず動くものを作るので、projectId=1 をデフォルトで入れておく。
-  const { data } = await getAssignments({ projectId: 1 })
+  // パラメータなしで全件取得
+  const { data } = await getAssignments()
   assignments.value = data
 }
 
@@ -119,12 +135,16 @@ const handleExport = async () => {
 }
 
 const handleAdd = () => {
-  form.value = { startYm: 202501, allocationRatio: 1.0 }
+  form.value = { startYm: '202501', allocationRatio: 1.0 }
   dialogVisible.value = true
 }
 
 const handleEdit = (row) => {
-  form.value = { ...row }
+  form.value = { 
+    ...row,
+    startYm: row.startYm ? String(row.startYm) : '',
+    endYm: row.endYm ? String(row.endYm) : ''
+  }
   dialogVisible.value = true
 }
 
@@ -152,7 +172,10 @@ const handleDelete = (row) => {
     })
 }
 
-// onMounted(fetchAssignments) // 初期ロードはしない、検索ボタンをつけるべきだが、今回は省略
+onMounted(() => {
+  fetchMasterData()
+  // fetchAssignments() // 初期ロードはしない、検索ボタンをつけるべきだが、今回は省略
+})
 </script>
 
 <style scoped>

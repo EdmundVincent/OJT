@@ -34,7 +34,13 @@
           <el-input v-model="form.name" />
         </el-form-item>
         <el-form-item label="入社年">
-          <el-input-number v-model="form.joinYear" />
+          <el-date-picker 
+            v-model="form.joinYear" 
+            type="year" 
+            value-format="YYYY" 
+            placeholder="年を選択" 
+            style="width: 100%" 
+          />
         </el-form-item>
         <el-form-item label="ランク">
           <el-select v-model="form.rank">
@@ -104,12 +110,15 @@ const handleExport = async () => {
 }
 
 const handleAdd = () => {
-  form.value = { joinYear: 2024 }
+  form.value = { joinYear: '2024' }
   dialogVisible.value = true
 }
 
 const handleEdit = (row) => {
-  form.value = { ...row }
+  form.value = { 
+    ...row,
+    joinYear: row.joinYear ? String(row.joinYear) : ''
+  }
   dialogVisible.value = true
 }
 

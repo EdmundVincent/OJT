@@ -9,6 +9,7 @@ import ProjectPlanList from '@/views/ProjectPlanList.vue'
 import AssignmentList from '@/views/AssignmentList.vue'
 import CodeMasterList from '@/views/CodeMasterList.vue'
 import UserList from '@/views/UserList.vue'
+import CustomerList from '@/views/CustomerList.vue'
 import ReportView from '@/views/ReportView.vue'
 
 const routes = [
@@ -30,6 +31,7 @@ const routes = [
       { path: 'assignments', name: 'Assignments', component: AssignmentList },
       { path: 'master/codes', name: 'CodeMaster', component: CodeMasterList },
       { path: 'master/users', name: 'UserMaster', component: UserList },
+      { path: 'master/customers', name: 'CustomerMaster', component: CustomerList },
       { path: 'reports', name: 'Reports', component: ReportView }
     ]
   }

@@ -19,6 +19,7 @@ public class ReportService {
      * 指定された期間・稼働率範囲に基づいて要員の稼働状況を集計する
      */
     public List<Map<String, Object>> getResourceAllocation(Map<String, Object> params) {
+        convertParamsToInteger(params);
         return reportMapper.getResourceAllocation(params);
     }
 
@@ -27,6 +28,7 @@ public class ReportService {
      * プロジェクト計画の生産額合計とプロジェクトマスタの売上を比較し、不一致のものを抽出する
      */
     public List<Map<String, Object>> getBudgetMismatch(Map<String, Object> params) {
+        convertParamsToInteger(params);
         return reportMapper.getBudgetMismatch(params);
     }
 
@@ -35,7 +37,25 @@ public class ReportService {
      * アサイン情報（単金 * 割当比）から実績コストを算出し、利益（売上 - コスト）を計算する
      */
     public List<Map<String, Object>> getProjectCost(Map<String, Object> params) {
+        convertParamsToInteger(params);
         return reportMapper.getProjectCost(params);
+    }
+
+    private void convertParamsToInteger(Map<String, Object> params) {
+        if (params.containsKey("startYm") && params.get("startYm") instanceof String) {
+            try {
+                params.put("startYm", Integer.parseInt((String) params.get("startYm")));
+            } catch (NumberFormatException e) {
+                // ignore
+            }
+        }
+        if (params.containsKey("endYm") && params.get("endYm") instanceof String) {
+            try {
+                params.put("endYm", Integer.parseInt((String) params.get("endYm")));
+            } catch (NumberFormatException e) {
+                // ignore
+            }
+        }
     }
 
     public void exportCsv(List<Map<String, Object>> data, java.io.Writer writer) throws Exception {

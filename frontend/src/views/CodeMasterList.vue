@@ -1,6 +1,6 @@
 <template>
   <div>
-    <div class="toolbar" v-if="authStore.user?.role === 'ADMIN'">
+    <div class="toolbar" v-if="authStore.isAdmin">
       <el-button type="success" @click="triggerImport">CSVインポート</el-button>
       <el-button type="warning" @click="handleExport">CSVエクスポート</el-button>
       <input type="file" ref="fileInput" style="display: none" @change="handleImport" accept=".csv" />

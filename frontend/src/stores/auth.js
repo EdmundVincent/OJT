@@ -6,6 +6,9 @@ export const useAuthStore = defineStore('auth', {
     token: localStorage.getItem('token'),
     user: JSON.parse(localStorage.getItem('user') || 'null')
   }),
+  getters: {
+    isAdmin: (state) => ['ADMIN', 'ROLE_ADMIN'].includes(state.user?.role)
+  },
   actions: {
     async login(email, password) {
       const response = await apiLogin(email, password)

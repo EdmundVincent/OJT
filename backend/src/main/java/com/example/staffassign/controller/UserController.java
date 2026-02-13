@@ -76,4 +76,23 @@ public class UserController {
         private LocalDate validTo;
         private String password; // optional; if provided, reset password
     }
+
+    @PostMapping("/import")
+    @PreAuthorize("hasRole('ADMIN')")
+    public void importCsv(@RequestParam("file") org.springframework.web.multipart.MultipartFile file) throws Exception {
+        try (java.io.Reader reader = new java.io.InputStreamReader(file.getInputStream(), java.nio.charset.StandardCharsets.UTF_8)) {
+            userService.importCsv(reader);
+        }
+    }
+
+    @GetMapping("/export")
+    @PreAuthorize("hasRole('ADMIN')")
+    public void exportCsv(jakarta.servlet.http.HttpServletResponse response) throws Exception {
+        response.setContentType("text/csv; charset=UTF-8");
+        response.setHeader("Content-Disposition", "attachment; filename=\"users.csv\"");
+        try (java.io.Writer writer = new java.io.OutputStreamWriter(response.getOutputStream(), java.nio.charset.StandardCharsets.UTF_8)) {
+            writer.write("\uFEFF"); // BOM
+            userService.exportCsv(writer);
+        }
+    }
 }

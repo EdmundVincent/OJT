@@ -33,10 +33,22 @@
           <el-input-number v-model="form.planVersion" :min="1" />
         </el-form-item>
         <el-form-item label="開始年月">
-          <el-input-number v-model="form.startYm" :min="200000" :max="209912" />
+          <el-date-picker 
+            v-model="form.startYm" 
+            type="month" 
+            value-format="YYYYMM" 
+            placeholder="選択してください" 
+            style="width: 100%" 
+          />
         </el-form-item>
         <el-form-item label="終了年月">
-          <el-input-number v-model="form.endYm" :min="200000" :max="209912" />
+          <el-date-picker 
+            v-model="form.endYm" 
+            type="month" 
+            value-format="YYYYMM" 
+            placeholder="選択してください" 
+            style="width: 100%" 
+          />
         </el-form-item>
         <el-form-item label="要員数">
           <el-input-number v-model="form.resourceCount" :min="0" :step="0.1" />
@@ -96,7 +108,7 @@ const handleAdd = () => {
 
   form.value = { 
     planVersion: nextVersion, 
-    startYm: nextStartYm,
+    startYm: String(nextStartYm),
     resourceCount: 1.0
   }
   dialogVisible.value = true

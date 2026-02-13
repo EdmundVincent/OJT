@@ -26,7 +26,7 @@ public class AssignmentController {
         if (employeeId != null) {
             return assignmentService.findByEmployeeId(employeeId);
         }
-        return List.of();
+        return assignmentService.findAll();
     }
 
     @PostMapping

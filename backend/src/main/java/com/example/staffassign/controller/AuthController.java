@@ -43,7 +43,11 @@ public class AuthController {
         response.put("token", jwt);
         response.put("email", loginRequest.getEmail());
         // 简单返回role，实际可能需要从authentication中获取
-        response.put("role", authentication.getAuthorities().iterator().next().getAuthority());
+        String role = authentication.getAuthorities().iterator().next().getAuthority();
+        if (role.startsWith("ROLE_")) {
+            role = role.substring(5);
+        }
+        response.put("role", role);
 
         return ResponseEntity.ok(response);
     }

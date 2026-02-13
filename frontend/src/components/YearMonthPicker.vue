@@ -1,8 +1,20 @@
 <template>
   <div class="ym-picker">
-    <el-input-number v-model="start" :min="200000" :max="209912" placeholder="Start YYYYMM" />
+    <el-date-picker 
+      v-model="start" 
+      type="month" 
+      value-format="YYYYMM" 
+      placeholder="開始年月" 
+      style="width: 140px" 
+    />
     <span class="separator">~</span>
-    <el-input-number v-model="end" :min="200000" :max="209912" placeholder="End YYYYMM" />
+    <el-date-picker 
+      v-model="end" 
+      type="month" 
+      value-format="YYYYMM" 
+      placeholder="終了年月" 
+      style="width: 140px" 
+    />
   </div>
 </template>
 

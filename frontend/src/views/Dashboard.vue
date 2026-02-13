@@ -33,6 +33,7 @@
           </template>
           <el-menu-item index="/master/users">利用者マスタ</el-menu-item>
           <el-menu-item index="/master/codes">コードマスタ</el-menu-item>
+          <el-menu-item index="/master/customers">顧客マスタ</el-menu-item>
         </el-sub-menu>
       </el-menu>
     </el-aside>

@@ -2,7 +2,7 @@
   <div>
     <div class="toolbar">
       <el-button type="primary" @click="handleAdd">新規登録</el-button>
-      <template v-if="authStore.user?.role === 'ADMIN'">
+      <template v-if="authStore.isAdmin">
         <el-button type="success" @click="triggerImport">CSVインポート</el-button>
         <el-button type="warning" @click="handleExport">CSVエクスポート</el-button>
         <el-button type="success" @click="triggerPlanImport">計画CSVインポート</el-button>
@@ -15,7 +15,11 @@
     <el-table :data="projects" border style="width: 100%">
       <el-table-column prop="id" label="ID" width="60" />
       <el-table-column prop="name" label="プロジェクト名" />
-      <el-table-column prop="customerId" label="顧客ID" />
+      <el-table-column label="顧客">
+        <template #default="scope">
+          {{ customers.find(c => String(c.id) === scope.row.customerId)?.name || scope.row.customerId }}
+        </template>
+      </el-table-column>
       <el-table-column prop="startYm" label="開始年月" />
       <el-table-column prop="endYm" label="終了年月" />
       <el-table-column prop="revenue" label="売上" />
@@ -32,14 +36,16 @@
         <el-form-item label="プロジェクト名">
           <el-input v-model="form.name" />
         </el-form-item>
-        <el-form-item label="顧客ID">
-          <el-input v-model="form.customerId" />
+        <el-form-item label="顧客">
+          <el-select v-model="form.customerId" placeholder="顧客を選択" style="width: 100%">
+            <el-option v-for="c in customers" :key="c.id" :label="c.name" :value="c.id" />
+          </el-select>
         </el-form-item>
         <el-form-item label="開始年月">
-          <el-input-number v-model="form.startYm" :min="200000" :max="209912" />
+          <el-date-picker v-model="form.startYm" type="month" value-format="YYYYMM" placeholder="選択してください" style="width: 100%" />
         </el-form-item>
         <el-form-item label="終了年月">
-          <el-input-number v-model="form.endYm" :min="200000" :max="209912" />
+          <el-date-picker v-model="form.endYm" type="month" value-format="YYYYMM" placeholder="選択してください" style="width: 100%" />
         </el-form-item>
         <el-form-item label="売上">
           <el-input-number v-model="form.revenue" :min="0" />
@@ -56,20 +62,24 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { getProjects, createProject, updateProject, deleteProject, importProjects, exportProjects, importProjectPlans, exportProjectPlans } from '@/api/project'
+import { getCustomers } from '@/api/customer'
 import { useAuthStore } from '@/stores/auth'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const authStore = useAuthStore()
 const projects = ref([])
+const customers = ref([])
 const dialogVisible = ref(false)
 const form = ref({})
 const fileInput = ref(null)
 const planFileInput = ref(null)
 
 const fetchProjects = async () => {
-  const { data } = await getProjects()
-  projects.value = data
+  const [pRes, cRes] = await Promise.all([getProjects(), getCustomers()])
+  projects.value = pRes.data
+  customers.value = cRes.data
 }
+
 
 const triggerImport = () => fileInput.value.click()
 const triggerPlanImport = () => planFileInput.value.click()
@@ -140,12 +150,16 @@ const handlePlanExport = async () => {
 }
 
 const handleAdd = () => {
-  form.value = { startYm: 202501 }
+  form.value = { startYm: '202501' }
   dialogVisible.value = true
 }
 
 const handleEdit = (row) => {
-  form.value = { ...row }
+  form.value = { 
+    ...row,
+    startYm: row.startYm ? String(row.startYm) : '',
+    endYm: row.endYm ? String(row.endYm) : ''
+  }
   dialogVisible.value = true
 }
 
