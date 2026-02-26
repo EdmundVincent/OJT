@@ -8,6 +8,9 @@ public class EmployeeCsvDto {
     @CsvBindByName(column = "ID")
     private Long id;
 
+    @CsvBindByName(column = "社員ID", required = true)
+    private String employeeCode;
+
     @CsvBindByName(column = "氏名", required = true)
     private String name;
 
@@ -19,6 +22,9 @@ public class EmployeeCsvDto {
 
     @CsvBindByName(column = "部門")
     private String department;
+
+    @CsvBindByName(column = "スキル")
+    private String skills;
 
     @CsvBindByName(column = "備考")
     private String remarks;

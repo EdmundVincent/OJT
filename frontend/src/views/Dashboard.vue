@@ -6,6 +6,10 @@
         :default-active="$route.path"
         class="el-menu-vertical"
       >
+        <el-menu-item index="/">
+          <el-icon><HomeFilled /></el-icon>
+          <span>ダッシュボード</span>
+        </el-menu-item>
         <el-menu-item index="/employees">
           <el-icon><User /></el-icon>
           <span>要員一覧</span>
@@ -16,6 +20,7 @@
             <span>プロジェクト</span>
           </template>
           <el-menu-item index="/projects">プロジェクト一覧</el-menu-item>
+          <el-menu-item index="/projects/gantt">ガントチャート</el-menu-item>
           <el-menu-item index="/projects/plans">計画管理</el-menu-item>
         </el-sub-menu>
         <el-menu-item index="/assignments">

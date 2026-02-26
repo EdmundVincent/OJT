@@ -3,8 +3,10 @@ import { useAuthStore } from '@/stores/auth'
 
 import Login from '@/views/Login.vue'
 import Dashboard from '@/views/Dashboard.vue'
+import Home from '@/views/Home.vue'
 import EmployeeList from '@/views/EmployeeList.vue'
 import ProjectList from '@/views/ProjectList.vue'
+import ProjectGantt from '@/views/ProjectGantt.vue'
 import ProjectPlanList from '@/views/ProjectPlanList.vue'
 import AssignmentList from '@/views/AssignmentList.vue'
 import CodeMasterList from '@/views/CodeMasterList.vue'
@@ -24,9 +26,10 @@ const routes = [
     component: Dashboard,
     meta: { requiresAuth: true },
     children: [
-      { path: '', redirect: '/employees' },
+      { path: '', name: 'Home', component: Home },
       { path: 'employees', name: 'Employees', component: EmployeeList },
       { path: 'projects', name: 'Projects', component: ProjectList },
+      { path: 'projects/gantt', name: 'ProjectGantt', component: ProjectGantt },
       { path: 'projects/plans', name: 'ProjectPlans', component: ProjectPlanList },
       { path: 'assignments', name: 'Assignments', component: AssignmentList },
       { path: 'master/codes', name: 'CodeMaster', component: CodeMasterList },

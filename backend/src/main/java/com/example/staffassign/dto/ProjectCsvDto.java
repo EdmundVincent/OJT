@@ -31,4 +31,16 @@ public class ProjectCsvDto {
 
     @CsvBindByName(column = "売上")
     private Long revenue;
+
+    @CsvBindByName(column = "PM ID")
+    private Long pmId;
+
+    @CsvBindByName(column = "優先度")
+    private String priority;
+
+    @CsvBindByName(column = "プロジェクト種別")
+    private String projectType;
+
+    @CsvBindByName(column = "ステータス")
+    private String status;
 }

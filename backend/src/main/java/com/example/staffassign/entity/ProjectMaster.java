@@ -14,6 +14,11 @@ public class ProjectMaster {
     private Integer endYm;
     private Long parentId;
     private Long revenue;
+    private Long pmId;
+    private String priority;
+    private String projectType;
+    private String status;
+    private String statusChangeReason;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

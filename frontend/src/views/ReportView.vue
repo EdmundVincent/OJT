@@ -33,7 +33,11 @@
         :key="col.prop"
         :prop="col.prop" 
         :label="col.label" 
-      />
+      >
+        <template #default="scope">
+          {{ col.isMoney ? formatMoney(scope.row[col.prop]) : scope.row[col.prop] }}
+        </template>
+      </el-table-column>
     </el-table>
   </div>
 </template>
@@ -70,13 +74,30 @@ onMounted(async () => {
   }
 })
 
+const moneyKeys = ['revenue', 'cost', 'profit', 'total_production', 'difference']
+
+const formatMoney = (value) => {
+  if (value == null) return ''
+  const num = Number(value)
+  if (Number.isNaN(num)) return ''
+  return Math.round(num / 10000)
+}
+
 const dynamicColumns = computed(() => {
   if (reportData.value.length === 0) return []
   const firstRow = reportData.value[0]
-  return Object.keys(firstRow).map(key => ({
-    prop: key,
-    label: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
-  }))
+  return Object.keys(firstRow).map(key => {
+    const isMoney = moneyKeys.includes(key)
+    let label = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+    if (isMoney) {
+      label += '（万）'
+    }
+    return {
+      prop: key,
+      label,
+      isMoney
+    }
+  })
 })
 
 const fetchReport = async () => {

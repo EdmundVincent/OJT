@@ -12,6 +12,10 @@ export function updateProject(id, data) {
   return request.put(`/projects/${id}`, data)
 }
 
+export function getProjectStatusHistory(id) {
+  return request.get(`/projects/${id}/status-history`)
+}
+
 export function deleteProject(id) {
   return request.delete(`/projects/${id}`)
 }

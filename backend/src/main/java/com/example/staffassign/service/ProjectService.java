@@ -4,27 +4,37 @@ import com.example.staffassign.dto.ProjectCsvDto;
 import com.example.staffassign.dto.ProjectPlanCsvDto;
 import com.example.staffassign.entity.ProjectMaster;
 import com.example.staffassign.entity.ProjectPlan;
+import com.example.staffassign.entity.ProjectStatusHistory;
 import com.example.staffassign.exception.BusinessException;
 import com.example.staffassign.repository.ProjectMasterMapper;
 import com.example.staffassign.repository.ProjectPlanMapper;
+import com.example.staffassign.repository.ProjectStatusHistoryMapper;
 import com.opencsv.bean.CsvToBeanBuilder;
 import com.opencsv.bean.StatefulBeanToCsvBuilder;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.Reader;
 import java.io.Writer;
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 @Service
 public class ProjectService {
     private final ProjectMasterMapper projectMasterMapper;
     private final ProjectPlanMapper projectPlanMapper;
+    private final ProjectStatusHistoryMapper projectStatusHistoryMapper;
+    private final AuditLogService auditLogService;
 
-    public ProjectService(ProjectMasterMapper projectMasterMapper, ProjectPlanMapper projectPlanMapper) {
+    public ProjectService(ProjectMasterMapper projectMasterMapper, ProjectPlanMapper projectPlanMapper, ProjectStatusHistoryMapper projectStatusHistoryMapper, AuditLogService auditLogService) {
         this.projectMasterMapper = projectMasterMapper;
         this.projectPlanMapper = projectPlanMapper;
+        this.projectStatusHistoryMapper = projectStatusHistoryMapper;
+        this.auditLogService = auditLogService;
     }
 
     // Project Master
@@ -37,16 +47,55 @@ public class ProjectService {
     }
 
     public void create(ProjectMaster project) {
+        if (project.getStatus() == null || project.getStatus().isBlank()) {
+            project.setStatus("進行中");
+        }
+        validateRequiredFieldsForStatus(project);
         projectMasterMapper.insert(project);
+        if (project.getId() != null) {
+            auditLogService.log("PROJECT_CREATE", "PROJECT", String.valueOf(project.getId()), project.getName());
+        }
     }
 
     public void update(Long id, ProjectMaster project) {
+        ProjectMaster existing = projectMasterMapper.findById(id).orElse(null);
+        if (existing == null) {
+            throw new BusinessException("対象のプロジェクトが存在しません。");
+        }
+        String oldStatus = existing.getStatus();
+        String newStatus = project.getStatus();
+        if (newStatus == null || newStatus.isBlank()) {
+            newStatus = oldStatus != null ? oldStatus : "進行中";
+            project.setStatus(newStatus);
+        }
+        if (!Objects.equals(oldStatus, newStatus)) {
+            validateStatusTransition(oldStatus, newStatus);
+            if (project.getStatusChangeReason() == null || project.getStatusChangeReason().isBlank()) {
+                throw new BusinessException("ステータスを変更する場合、ステータス変更理由は必須です。");
+            }
+        }
+        validateRequiredFieldsForStatus(project);
         project.setId(id);
         projectMasterMapper.update(project);
+        if (!Objects.equals(oldStatus, newStatus)) {
+            ProjectStatusHistory history = new ProjectStatusHistory();
+            history.setProjectId(id);
+            history.setOldStatus(oldStatus);
+            history.setNewStatus(newStatus);
+            history.setReason(project.getStatusChangeReason());
+            Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+            if (auth != null) {
+                history.setChangedBy(auth.getName());
+            }
+            history.setChangedAt(LocalDateTime.now());
+            projectStatusHistoryMapper.insert(history);
+        }
+        auditLogService.log("PROJECT_UPDATE", "PROJECT", String.valueOf(id), project.getName());
     }
 
     public void delete(Long id) {
         projectMasterMapper.delete(id);
+        auditLogService.log("PROJECT_DELETE", "PROJECT", String.valueOf(id), null);
     }
 
     @Transactional
@@ -66,6 +115,10 @@ public class ProjectService {
             entity.setEndYm(dto.getEndYm());
             entity.setParentId(dto.getParentId());
             entity.setRevenue(dto.getRevenue());
+            entity.setPmId(dto.getPmId());
+            entity.setPriority(dto.getPriority());
+            entity.setProjectType(dto.getProjectType());
+            entity.setStatus(dto.getStatus());
 
             if (dto.getId() != null && projectMasterMapper.findById(dto.getId()).isPresent()) {
                 entity.setId(dto.getId());
@@ -89,6 +142,10 @@ public class ProjectService {
             dto.setEndYm(e.getEndYm());
             dto.setParentId(e.getParentId());
             dto.setRevenue(e.getRevenue());
+            dto.setPmId(e.getPmId());
+            dto.setPriority(e.getPriority());
+            dto.setProjectType(e.getProjectType());
+            dto.setStatus(e.getStatus());
             return dto;
         }).collect(Collectors.toList());
 
@@ -107,7 +164,7 @@ public class ProjectService {
         Integer maxEndYm = projectPlanMapper.findMaxEndYmByProjectId(plan.getProjectId());
         if (maxEndYm != null) {
             if (plan.getStartYm() <= maxEndYm) {
-                throw new BusinessException("Start YM must be greater than previous End YM (" + maxEndYm + ")");
+                throw new BusinessException("開始年月は前回の終了年月(" + maxEndYm + ")より後の日付を指定してください。");
             }
         }
         projectPlanMapper.insert(plan);
@@ -160,8 +217,8 @@ public class ProjectService {
                     }
                     
                     // 既存データがある場合のみチェック（初回登録時はmaxEndYmはnullまたは関係ない）
-                     throw new BusinessException("Import Error: Project ID " + dto.getProjectId() + 
-                             " - Start YM (" + dto.getStartYm() + ") must be greater than previous End YM (" + maxEndYm + ")");
+                     throw new BusinessException("インポートエラー: プロジェクトID " + dto.getProjectId() + 
+                             " - 開始年月 (" + dto.getStartYm() + ") は前回の終了年月 (" + maxEndYm + ") より後の日付である必要があります。");
                 }
             }
 
@@ -191,5 +248,57 @@ public class ProjectService {
         new StatefulBeanToCsvBuilder<ProjectPlanCsvDto>(writer)
                 .build()
                 .write(dtos);
+    }
+
+    public List<ProjectStatusHistory> findStatusHistory(Long projectId) {
+        return projectStatusHistoryMapper.findByProjectId(projectId);
+    }
+
+    private void validateStatusTransition(String oldStatus, String newStatus) {
+        if (oldStatus == null || Objects.equals(oldStatus, newStatus)) {
+            return;
+        }
+        if (oldStatus.equals("提案中")) {
+            if (newStatus.equals("進行中") || newStatus.equals("中断")) {
+                return;
+            }
+        } else if (oldStatus.equals("進行中")) {
+            if (newStatus.equals("完了") || newStatus.equals("中断")) {
+                return;
+            }
+        } else if (oldStatus.equals("中断")) {
+            if (newStatus.equals("進行中")) {
+                return;
+            }
+        }
+        throw new BusinessException("このステータスへの変更は許可されていません。");
+    }
+
+    private void validateRequiredFieldsForStatus(ProjectMaster project) {
+        String status = project.getStatus();
+        if (status == null || status.isBlank()) {
+            return;
+        }
+        if (status.equals("提案中")) {
+            if (isBlank(project.getName()) || isBlank(project.getCustomerId())) {
+                throw new BusinessException("ステータスが「提案中」の場合、プロジェクト名と顧客は必須です。");
+            }
+        } else if (status.equals("進行中")) {
+            if (isBlank(project.getName()) || isBlank(project.getCustomerId()) || project.getStartYm() == null || project.getRevenue() == null) {
+                throw new BusinessException("ステータスが「進行中」の場合、プロジェクト名、顧客、開始年月、売上は必須です。終了年月は任意項目です。");
+            }
+        } else if (status.equals("完了")) {
+            if (isBlank(project.getName()) || isBlank(project.getCustomerId()) || project.getStartYm() == null || project.getEndYm() == null) {
+                throw new BusinessException("ステータスが「完了」の場合、プロジェクト名、顧客、開始年月、終了年月は必須です。");
+            }
+        } else if (status.equals("中断")) {
+            if (isBlank(project.getName()) || isBlank(project.getCustomerId())) {
+                throw new BusinessException("ステータスが「中断」の場合、プロジェクト名と顧客は必須です。");
+            }
+        }
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 }

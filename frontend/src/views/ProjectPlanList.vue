@@ -14,18 +14,37 @@
       </el-button>
     </div>
 
-    <el-table :data="plans" border style="width: 100%" v-if="selectedProjectId">
+    <el-table :data="plansWithDiff" border style="width: 100%" v-if="selectedProjectId">
       <el-table-column prop="planVersion" label="版数" width="80" />
-      <el-table-column prop="startYm" label="開始年月" />
-      <el-table-column prop="endYm" label="終了年月" />
-      <el-table-column prop="resourceCount" label="要員数" />
-      <el-table-column prop="productionAmount" label="生産額" />
+      <el-table-column prop="startYm" label="開始年月" width="100" />
+      <el-table-column prop="endYm" label="終了年月" width="100" />
+      <el-table-column label="要員数" width="120">
+        <template #default="scope">
+          {{ scope.row.resourceCount }}
+          <span v-if="scope.row.diffResource !== 0" :class="scope.row.diffResource > 0 ? 'diff-up' : 'diff-down'">
+            ({{ scope.row.diffResource > 0 ? '+' : '' }}{{ scope.row.diffResource.toFixed(1) }})
+          </span>
+        </template>
+      </el-table-column>
+      <el-table-column label="生産額（万）" width="150">
+        <template #default="scope">
+          {{ formatMoney(scope.row.productionAmount) }}
+          <span v-if="scope.row.diffAmount !== 0" :class="scope.row.diffAmount > 0 ? 'diff-up' : 'diff-down'">
+            ({{ scope.row.diffAmount > 0 ? '+' : '' }}{{ formatMoney(scope.row.diffAmount) }})
+          </span>
+        </template>
+      </el-table-column>
       <el-table-column label="操作" width="100">
         <template #default="scope">
           <el-button size="small" type="danger" @click="handleDelete(scope.row)">削除</el-button>
         </template>
       </el-table-column>
     </el-table>
+
+    <style scoped>
+    .diff-up { color: #f56c6c; font-size: 12px; margin-left: 4px; }
+    .diff-down { color: #67c23a; font-size: 12px; margin-left: 4px; }
+    </style>
 
     <el-dialog v-model="dialogVisible" title="計画登録">
       <el-form :model="form" label-width="120px">
@@ -66,7 +85,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { getProjects } from '@/api/project'
 import { getProjectPlans, createProjectPlan, deleteProjectPlan } from '@/api/project-plan'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -76,6 +95,24 @@ const selectedProjectId = ref(null)
 const plans = ref([])
 const dialogVisible = ref(false)
 const form = ref({})
+
+const formatMoney = (value) => {
+  if (value == null) return ''
+  return Math.round(Number(value) / 10000)
+}
+
+const plansWithDiff = computed(() => {
+  // Sort plans by version ascending to calculate diff
+  const sorted = [...plans.value].sort((a, b) => a.planVersion - b.planVersion)
+  return sorted.map((p, index) => {
+    const prev = sorted[index - 1]
+    return {
+      ...p,
+      diffResource: prev ? p.resourceCount - prev.resourceCount : 0,
+      diffAmount: prev ? p.productionAmount - prev.productionAmount : 0
+    }
+  }).reverse() // Show latest first in table
+})
 
 const fetchProjects = async () => {
   const { data } = await getProjects()

@@ -1,5 +1,6 @@
 package com.example.staffassign.controller;
 
+import com.example.staffassign.dto.EmployeeHistoryItem;
 import com.example.staffassign.entity.EmployeeMaster;
 import com.example.staffassign.service.EmployeeService;
 import jakarta.servlet.http.HttpServletResponse;
@@ -46,6 +47,11 @@ public class EmployeeController {
     @PreAuthorize("hasRole('ADMIN')")
     public void delete(@PathVariable Long id) {
         employeeService.delete(id);
+    }
+
+    @GetMapping("/{id}/history")
+    public List<EmployeeHistoryItem> getHistory(@PathVariable Long id) {
+        return employeeService.getHistory(id);
     }
 
     @GetMapping("/export")

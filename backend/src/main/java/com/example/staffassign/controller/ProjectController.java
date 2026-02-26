@@ -2,6 +2,7 @@ package com.example.staffassign.controller;
 
 import com.example.staffassign.entity.ProjectMaster;
 import com.example.staffassign.entity.ProjectPlan;
+import com.example.staffassign.entity.ProjectStatusHistory;
 import com.example.staffassign.service.ProjectService;
 import org.springframework.security.access.prepost.PreAuthorize;
 import jakarta.validation.Valid;
@@ -26,6 +27,11 @@ public class ProjectController {
     @GetMapping("/{id}")
     public ProjectMaster getById(@PathVariable Long id) {
         return projectService.findById(id);
+    }
+
+    @GetMapping("/{id}/status-history")
+    public List<ProjectStatusHistory> getStatusHistory(@PathVariable Long id) {
+        return projectService.findStatusHistory(id);
     }
 
     @PostMapping

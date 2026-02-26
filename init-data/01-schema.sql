@@ -21,10 +21,12 @@ CREATE TABLE user_master (
 -- 要員マスタ
 CREATE TABLE employee_master (
     id BIGSERIAL PRIMARY KEY,
+    employee_code VARCHAR(4) UNIQUE,
     name VARCHAR(100) NOT NULL,
     join_year INT NOT NULL,
     rank VARCHAR(50),
     department VARCHAR(100),
+    skills TEXT,
     remarks TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -41,6 +43,10 @@ CREATE TABLE project_master (
     end_ym INT CHECK (end_ym % 100 BETWEEN 1 AND 12),
     parent_id BIGINT REFERENCES project_master(id),
     revenue BIGINT DEFAULT 0,
+    pm_id BIGINT REFERENCES employee_master(id),
+    priority VARCHAR(20) DEFAULT '中',
+    project_type VARCHAR(50),
+    status VARCHAR(20) DEFAULT '進行中',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -72,6 +78,26 @@ CREATE TABLE assignment (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (project_id, employee_id, start_ym),
     CHECK (end_ym >= start_ym)
+);
+
+CREATE TABLE project_status_history (
+    id BIGSERIAL PRIMARY KEY,
+    project_id BIGINT NOT NULL REFERENCES project_master(id) ON DELETE CASCADE,
+    old_status VARCHAR(20),
+    new_status VARCHAR(20) NOT NULL,
+    reason TEXT,
+    changed_by VARCHAR(255),
+    changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE audit_log (
+    id BIGSERIAL PRIMARY KEY,
+    action_type VARCHAR(100) NOT NULL,
+    target_type VARCHAR(100) NOT NULL,
+    target_id VARCHAR(100),
+    detail TEXT,
+    performed_by VARCHAR(255),
+    performed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- インデックス

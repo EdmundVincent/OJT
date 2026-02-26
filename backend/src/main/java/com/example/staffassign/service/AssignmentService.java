@@ -12,15 +12,18 @@ import com.opencsv.bean.StatefulBeanToCsv;
 import com.opencsv.bean.StatefulBeanToCsvBuilder;
 import java.io.Reader;
 import java.io.Writer;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
 @Service
 public class AssignmentService {
     private final AssignmentMapper assignmentMapper;
+    private final AuditLogService auditLogService;
 
-    public AssignmentService(AssignmentMapper assignmentMapper) {
+    public AssignmentService(AssignmentMapper assignmentMapper, AuditLogService auditLogService) {
         this.assignmentMapper = assignmentMapper;
+        this.auditLogService = auditLogService;
     }
 
     public List<Assignment> findAll() {
@@ -33,6 +36,39 @@ public class AssignmentService {
     
     public List<Assignment> findByEmployeeId(Long employeeId) {
         return assignmentMapper.findByEmployeeId(employeeId);
+    }
+
+    private void checkUtilizationConflict(Assignment assignment) {
+        List<Assignment> existingAssignments = assignmentMapper.findByEmployeeId(assignment.getEmployeeId());
+        
+        int startYm = assignment.getStartYm();
+        int endYm = assignment.getEndYm();
+        
+        for (int ym = startYm; ym <= endYm; ) {
+            BigDecimal totalRatio = assignment.getAllocationRatio();
+            for (Assignment existing : existingAssignments) {
+                // Skip the current assignment being updated
+                if (assignment.getId() != null && existing.getId().equals(assignment.getId())) {
+                    continue;
+                }
+                if (ym >= existing.getStartYm() && ym <= existing.getEndYm()) {
+                    totalRatio = totalRatio.add(existing.getAllocationRatio());
+                }
+            }
+            if (totalRatio.compareTo(new BigDecimal("1.00")) > 0) {
+                throw new BusinessException(String.format("%d月の合計稼働率が%.2fとなり、1.0を超えています。", ym, totalRatio));
+            }
+            
+            // Advance ym
+            int year = ym / 100;
+            int month = ym % 100;
+            month++;
+            if (month > 12) {
+                month = 1;
+                year++;
+            }
+            ym = year * 100 + month;
+        }
     }
 
     @Transactional
@@ -49,16 +85,7 @@ public class AssignmentService {
             entity.setUnitPrice(dto.getUnitPrice());
             entity.setAllocationRatio(dto.getAllocationRatio());
             
-            // 連続性チェック: 同一プロジェクト・同一要員の既存アサインの終了年月より後であることを確認
-            Integer maxEndYm = assignmentMapper.findMaxEndYm(dto.getProjectId(), dto.getEmployeeId());
-            if (maxEndYm != null) {
-                // 開始年月が以前の終了年月以下であればエラー（重複または逆転）
-                if (dto.getStartYm() <= maxEndYm) {
-                     throw new BusinessException("Import Error: Project ID " + dto.getProjectId() + 
-                             ", Employee ID " + dto.getEmployeeId() +
-                             " - Start YM (" + dto.getStartYm() + ") must be greater than previous End YM (" + maxEndYm + ")");
-                }
-            }
+            checkUtilizationConflict(entity);
 
             if (dto.getId() != null && assignmentMapper.findById(dto.getId()).isPresent()) {
                 entity.setId(dto.getId());
@@ -87,27 +114,28 @@ public class AssignmentService {
             StatefulBeanToCsv<AssignmentCsvDto> beanToCsv = new StatefulBeanToCsvBuilder<AssignmentCsvDto>(writer).build();
             beanToCsv.write(dtos);
         } catch (Exception e) {
-            throw new BusinessException("Failed to export CSV: " + e.getMessage());
+            throw new BusinessException("CSVエクスポートに失敗しました: " + e.getMessage());
         }
     }
 
     @Transactional
     public void create(Assignment assignment) {
-        Integer maxEndYm = assignmentMapper.findMaxEndYm(assignment.getProjectId(), assignment.getEmployeeId());
-        if (maxEndYm != null) {
-            if (assignment.getStartYm() <= maxEndYm) {
-                throw new BusinessException("Start YM must be greater than previous End YM (" + maxEndYm + ")");
-            }
-        }
+        checkUtilizationConflict(assignment);
         assignmentMapper.insert(assignment);
+        if (assignment.getId() != null) {
+            auditLogService.log("ASSIGNMENT_CREATE", "ASSIGNMENT", String.valueOf(assignment.getId()), String.valueOf(assignment.getEmployeeId()));
+        }
     }
 
     public void update(Long id, Assignment assignment) {
         assignment.setId(id);
+        checkUtilizationConflict(assignment);
         assignmentMapper.update(assignment);
+        auditLogService.log("ASSIGNMENT_UPDATE", "ASSIGNMENT", String.valueOf(id), String.valueOf(assignment.getEmployeeId()));
     }
 
     public void delete(Long id) {
         assignmentMapper.delete(id);
+        auditLogService.log("ASSIGNMENT_DELETE", "ASSIGNMENT", String.valueOf(id), null);
     }
 }

@@ -25,3 +25,7 @@ export function importEmployees(formData) {
     headers: { 'Content-Type': 'multipart/form-data' }
   })
 }
+
+export function getEmployeeHistory(id) {
+  return request.get(`/employees/${id}/history`)
+}
